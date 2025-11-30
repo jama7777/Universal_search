@@ -7,6 +7,11 @@ export interface SearchSource {
   uri: string;
 }
 
+export interface SearchResult {
+  markdownText: string;
+  sources: SearchSource[];
+}
+
 export interface GroundingChunk {
   web?: {
     uri?: string;
@@ -14,9 +19,12 @@ export interface GroundingChunk {
   };
 }
 
-export interface SearchResult {
-  markdownText: string;
-  sources: SearchSource[];
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  sources?: SearchSource[];
+  timestamp: number;
 }
 
 export enum SearchStatus {
@@ -34,10 +42,10 @@ export interface NavItem {
 
 export interface SearchSession {
   id: string;
-  query: string;
+  title: string;
   category: SearchCategory;
+  messages: ChatMessage[];
   status: SearchStatus;
-  result: SearchResult | null;
   error: string | null;
-  timestamp: number;
+  lastUpdated: number;
 }

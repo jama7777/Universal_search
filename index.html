@@ -27,6 +27,21 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #64748b; 
       }
+      
+      @media print {
+        body {
+          background-color: white;
+          color: black;
+        }
+        .no-print {
+          display: none !important;
+        }
+        /* Ensure all content is visible */
+        .overflow-y-auto {
+          overflow: visible !important;
+          height: auto !important;
+        }
+      }
     </style>
   <script type="importmap">
 {
@@ -35,7 +50,9 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0"
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "html2canvas": "https://cdn.skypack.dev/html2canvas",
+    "jspdf": "https://cdn.skypack.dev/jspdf"
   }
 }
 </script>
