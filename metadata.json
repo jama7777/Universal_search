@@ -1,0 +1,5 @@
+{
+  "name": "OmniSearch LLM Explorer",
+  "description": "A unified search interface connecting to live web data to explore LLM applications, research papers, and ecosystem news using Gemini's grounding capabilities.",
+  "requestFramePermissions": []
+}
