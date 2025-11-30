@@ -31,3 +31,13 @@ export interface NavItem {
   label: string;
   icon: React.ReactNode;
 }
+
+export interface SearchSession {
+  id: string;
+  query: string;
+  category: SearchCategory;
+  status: SearchStatus;
+  result: SearchResult | null;
+  error: string | null;
+  timestamp: number;
+}

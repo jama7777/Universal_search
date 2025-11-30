@@ -1,52 +1,143 @@
-import React, { useState, FormEvent } from 'react';
-import { Search, Sparkles, BookOpen, Layers, Zap, Loader2, AlertCircle, Menu } from 'lucide-react';
+import React, { useState, FormEvent, useEffect } from 'react';
+import { Search, Sparkles, Loader2, AlertCircle, Menu } from 'lucide-react';
 import { searchLLMContext } from './services/geminiService';
-import { SearchResult, SearchStatus, SearchCategory } from './types';
-import MarkdownRenderer from './components/MarkdownRenderer';
+import { SearchSession, SearchStatus, SearchCategory } from './types';
 import SourceList from './components/SourceList';
 import CategorySidebar from './components/CategorySidebar';
+import SearchTabs from './components/SearchTabs';
+import ResultDisplay from './components/ResultDisplay';
+
+// Generator for unique IDs
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const App: React.FC = () => {
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<SearchCategory>('General');
-  const [status, setStatus] = useState<SearchStatus>(SearchStatus.IDLE);
-  const [result, setResult] = useState<SearchResult | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // --- Multi-Tab State Management ---
+  const [sessions, setSessions] = useState<SearchSession[]>([
+    { 
+      id: 'init-1', 
+      query: '', 
+      category: 'General', 
+      status: SearchStatus.IDLE, 
+      result: null, 
+      error: null,
+      timestamp: Date.now() 
+    }
+  ]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('init-1');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Reusable search function
-  const performSearch = async (searchQuery: string, searchCategory: SearchCategory) => {
-    if (!searchQuery.trim()) return;
+  // Helper to get active session safely
+  const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
-    setStatus(SearchStatus.LOADING);
-    setErrorMsg(null);
-    setResult(null);
-    // Close mobile menu if open
+  // Helper to update active session
+  const updateActiveSession = (updates: Partial<SearchSession>) => {
+    setSessions(prev => prev.map(s => 
+      s.id === activeSessionId ? { ...s, ...updates } : s
+    ));
+  };
+
+  // --- Actions ---
+
+  const handleNewTab = () => {
+    const newId = generateId();
+    const newSession: SearchSession = {
+      id: newId,
+      query: '',
+      category: 'General',
+      status: SearchStatus.IDLE,
+      result: null,
+      error: null,
+      timestamp: Date.now()
+    };
+    setSessions(prev => [...prev, newSession]);
+    setActiveSessionId(newId);
+  };
+
+  const handleCloseTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (sessions.length === 1) {
+      // Don't close the last tab, just reset it
+      setSessions([{ ...sessions[0], query: '', status: SearchStatus.IDLE, result: null, error: null }]);
+      return;
+    }
+
+    const newSessions = sessions.filter(s => s.id !== id);
+    setSessions(newSessions);
+
+    // If we closed the active tab, switch to the last available one
+    if (id === activeSessionId) {
+      setActiveSessionId(newSessions[newSessions.length - 1].id);
+    }
+  };
+
+  const handleSearch = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
+    
+    const currentQuery = activeSession.query;
+    const currentCategory = activeSession.category;
+
+    if (!currentQuery.trim()) return;
+
+    // Update status to loading
+    updateActiveSession({ status: SearchStatus.LOADING, error: null, result: null });
     setIsMobileMenuOpen(false);
 
     try {
-      const data = await searchLLMContext(searchQuery, searchCategory);
-      setResult(data);
-      setStatus(SearchStatus.SUCCESS);
+      const data = await searchLLMContext(currentQuery, currentCategory);
+      updateActiveSession({ status: SearchStatus.SUCCESS, result: data });
     } catch (err) {
       console.error(err);
-      setStatus(SearchStatus.ERROR);
-      setErrorMsg("Failed to retrieve search results. Please verify your API key and network connection.");
+      updateActiveSession({ 
+        status: SearchStatus.ERROR, 
+        error: "Failed to retrieve search results. Please verify your API key and network connection." 
+      });
     }
-  };
-
-  const handleSearchSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    performSearch(query, category);
   };
 
   const handleCategoryChange = (newCategory: SearchCategory) => {
-    setCategory(newCategory);
-    if (query.trim() && status === SearchStatus.SUCCESS) {
-        // If we already have results, auto-refresh with new category
-        performSearch(query, newCategory);
+    // Update category in state
+    updateActiveSession({ category: newCategory });
+    
+    // If we have a query and a successful result (or was loading), auto-trigger search with new category
+    if (activeSession.query.trim() && activeSession.status === SearchStatus.SUCCESS) {
+       // We need to trigger the search, but since state updates are async, 
+       // we call the service directly with the new value
+       // However, to keep it clean, let's just trigger a re-search effect or call it directly.
+       // For simplicity, we'll manually call the async logic here mirroring handleSearch
+       (async () => {
+          setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, status: SearchStatus.LOADING, category: newCategory, error: null, result: null } : s));
+          try {
+            const data = await searchLLMContext(activeSession.query, newCategory);
+            setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, status: SearchStatus.SUCCESS, result: data } : s));
+          } catch (err) {
+             setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, status: SearchStatus.ERROR, error: "Failed." } : s));
+          }
+       })();
     }
   };
+
+  // --- Render Helpers ---
+
+  const SuggestionChip = ({ label }: { label: string }) => (
+    <button
+      onClick={() => {
+        updateActiveSession({ query: label });
+        // Small timeout to allow state to update before triggering search
+        setTimeout(() => {
+           // We need to access the latest state, so we pass the label directly to a custom search call
+           // Or just force the update above and call a one-off search function
+           // Easiest is to update state then manually call service
+           setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, query: label, status: SearchStatus.LOADING, result: null } : s));
+           searchLLMContext(label, activeSession.category)
+             .then(data => setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, status: SearchStatus.SUCCESS, result: data } : s)))
+             .catch(() => setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, status: SearchStatus.ERROR, error: "Failed" } : s)));
+        }, 0);
+      }}
+      className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700 text-slate-300 text-sm rounded-full border border-slate-700 hover:border-blue-500/50 transition-all cursor-pointer"
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 selection:bg-blue-500/30 flex">
@@ -57,7 +148,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Sidebar (Desktop) */}
-      <CategorySidebar selectedCategory={category} onSelectCategory={handleCategoryChange} />
+      <CategorySidebar selectedCategory={activeSession.category} onSelectCategory={handleCategoryChange} />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col relative z-10 w-full max-w-full overflow-hidden">
@@ -78,7 +169,7 @@ const App: React.FC = () => {
                   <button 
                     key={cat}
                     onClick={() => handleCategoryChange(cat)}
-                    className={`p-3 rounded-lg text-sm font-medium ${category === cat ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                    className={`p-3 rounded-lg text-sm font-medium ${activeSession.category === cat ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}
                   >
                     {cat}
                   </button>
@@ -87,154 +178,132 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
+        <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col h-screen">
           
-          {/* Header Area */}
-          <header className={`transition-all duration-500 ease-in-out flex flex-col items-center ${status === SearchStatus.IDLE ? 'justify-center min-h-[60vh]' : 'justify-start pt-4 pb-8'}`}>
-            <div className="text-center mb-8">
-              <h1 className={`font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 transition-all duration-500 ${status === SearchStatus.IDLE ? 'text-5xl md:text-7xl mb-4' : 'text-3xl md:text-4xl mb-2'}`}>
-                OmniSearch
-              </h1>
-              <p className={`text-slate-400 transition-all duration-500 ${status === SearchStatus.IDLE ? 'text-lg md:text-xl max-w-2xl mx-auto' : 'text-sm md:text-base hidden md:block'}`}>
-                {category === 'General' ? 'Unified intelligence for LLMs, Applications, and Research.' : `Exploring ${category} Intelligence`}
-              </p>
-            </div>
+          {/* Top Bar: Tabs */}
+          <SearchTabs 
+            sessions={sessions} 
+            activeId={activeSessionId} 
+            onSwitch={setActiveSessionId} 
+            onClose={handleCloseTab} 
+            onNew={handleNewTab}
+          />
 
-            {/* Search Bar */}
-            <div className={`w-full transition-all duration-500 ${status === SearchStatus.IDLE ? 'max-w-2xl' : 'max-w-4xl'}`}>
-              <form onSubmit={handleSearchSubmit} className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Search className={`text-slate-500 group-focus-within:text-blue-400 transition-colors ${status === SearchStatus.LOADING ? 'animate-pulse' : ''}`} />
-                </div>
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={`Search for ${category.toLowerCase()} concepts...`}
-                  className="block w-full pl-12 pr-4 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all shadow-lg shadow-black/20"
-                  disabled={status === SearchStatus.LOADING}
-                />
-                <button 
-                  type="submit"
-                  disabled={status === SearchStatus.LOADING || !query.trim()}
-                  className="absolute right-2 top-2 bottom-2 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {status === SearchStatus.LOADING ? (
-                    <>
-                      <Loader2 className="animate-spin" size={18} />
-                      <span className="hidden sm:inline">Searching...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="hidden sm:inline">Explore</span>
-                      <Sparkles size={16} />
-                    </>
-                  )}
-                </button>
-              </form>
+          <div className="flex-1 overflow-y-auto no-scrollbar pb-20">
+            {/* Search Header Area */}
+            <div className={`transition-all duration-500 ease-in-out flex flex-col items-center ${activeSession.status === SearchStatus.IDLE ? 'justify-center min-h-[50vh]' : 'justify-start mb-8'}`}>
               
-              {/* Suggestions (Only when Idle) */}
-              {status === SearchStatus.IDLE && (
-                <div className="mt-6 flex flex-wrap justify-center gap-3">
-                  {category === 'General' && (
-                    <>
-                      <SuggestionChip label="Gemini vs GPT-4" onClick={() => { setQuery("Gemini vs GPT-4"); performSearch("Gemini vs GPT-4", category); }} />
-                      <SuggestionChip label="DeepSeek Architecture" onClick={() => { setQuery("DeepSeek Architecture"); performSearch("DeepSeek Architecture", category); }} />
-                    </>
-                  )}
-                  {category === 'Health' && (
-                    <>
-                       <SuggestionChip label="Med-PaLM 2 Papers" onClick={() => { setQuery("Med-PaLM 2 Papers"); performSearch("Med-PaLM 2 Papers", category); }} />
-                       <SuggestionChip label="AI in Radiology" onClick={() => { setQuery("AI in Radiology"); performSearch("AI in Radiology", category); }} />
-                    </>
-                  )}
-                  {category === 'Emotion' && (
-                    <>
-                       <SuggestionChip label="Sentiment Analysis Trends" onClick={() => { setQuery("Sentiment Analysis Trends"); performSearch("Sentiment Analysis Trends", category); }} />
-                       <SuggestionChip label="Empathetic Chatbots" onClick={() => { setQuery("Empathetic Chatbots"); performSearch("Empathetic Chatbots", category); }} />
-                    </>
-                  )}
-                   {category === 'Business' && (
-                    <SuggestionChip label="Enterprise LLM Adoption" onClick={() => { setQuery("Enterprise LLM Adoption"); performSearch("Enterprise LLM Adoption", category); }} />
-                  )}
-                </div>
-              )}
-            </div>
-          </header>
-
-          {/* Content Area */}
-          {status === SearchStatus.ERROR && (
-            <div className="max-w-4xl mx-auto w-full p-6 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-4 text-red-200 animate-fade-in">
-              <AlertCircle className="shrink-0 mt-1" />
-              <div>
-                <h3 className="font-semibold text-lg">Search Failed</h3>
-                <p>{errorMsg}</p>
-              </div>
-            </div>
-          )}
-
-          {status === SearchStatus.SUCCESS && result && (
-            <div className="w-full flex-1 grid grid-cols-1 xl:grid-cols-12 gap-8 animate-fade-in-up pb-12">
-              
-              {/* Main Content Column */}
-              <main className="xl:col-span-8 space-y-6">
-                
-                {/* Feature Cards / Navigation Visuals */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <FeatureCard icon={<Layers className="text-purple-400" />} title="Applications" description={`${category} Tools`} />
-                  <FeatureCard icon={<BookOpen className="text-emerald-400" />} title="Research" description="Field Papers" />
-                  <FeatureCard icon={<Zap className="text-amber-400" />} title="Ecosystem" description="Domain News" />
-                </div>
-
-                <div className="bg-slate-900/40 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl">
-                  <MarkdownRenderer content={result.markdownText} />
-                </div>
-              </main>
-
-              {/* Sidebar Column */}
-              <aside className="xl:col-span-4 space-y-6">
-                <SourceList sources={result.sources} />
-                
-                <div className="bg-gradient-to-br from-indigo-900/30 to-blue-900/30 rounded-xl p-5 border border-indigo-500/20">
-                  <h4 className="font-semibold text-indigo-200 mb-2 flex items-center gap-2">
-                    <Sparkles size={16} />
-                    Context Aware
-                  </h4>
-                  <p className="text-sm text-slate-400">
-                    Results are tailored to the <strong>{category}</strong> domain using real-time search grounding.
+              {activeSession.status === SearchStatus.IDLE && (
+                <div className="text-center mb-8 animate-fade-in">
+                  <h1 className="font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 text-4xl md:text-6xl mb-4">
+                    OmniSearch
+                  </h1>
+                  <p className="text-slate-400 text-lg">
+                    {activeSession.category === 'General' ? 'Unified intelligence.' : `Exploring ${activeSession.category}.`}
                   </p>
                 </div>
-              </aside>
+              )}
 
+              {/* Search Input */}
+              <div className={`w-full transition-all duration-500 ${activeSession.status === SearchStatus.IDLE ? 'max-w-2xl' : 'max-w-4xl'}`}>
+                <form onSubmit={handleSearch} className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Search className={`text-slate-500 group-focus-within:text-blue-400 transition-colors ${activeSession.status === SearchStatus.LOADING ? 'animate-pulse' : ''}`} />
+                  </div>
+                  <input
+                    type="text"
+                    value={activeSession.query}
+                    onChange={(e) => updateActiveSession({ query: e.target.value })}
+                    placeholder={`Search ${activeSession.category}...`}
+                    className="block w-full pl-12 pr-4 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all shadow-lg shadow-black/20"
+                    disabled={activeSession.status === SearchStatus.LOADING}
+                  />
+                  <button 
+                    type="submit"
+                    disabled={activeSession.status === SearchStatus.LOADING || !activeSession.query.trim()}
+                    className="absolute right-2 top-2 bottom-2 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {activeSession.status === SearchStatus.LOADING ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                      </>
+                    ) : (
+                      <>
+                        <span className="hidden sm:inline">Explore</span>
+                        <Sparkles size={16} />
+                      </>
+                    )}
+                  </button>
+                </form>
+                
+                {/* Suggestions (Only when Idle) */}
+                {activeSession.status === SearchStatus.IDLE && (
+                  <div className="mt-6 flex flex-wrap justify-center gap-3">
+                    {activeSession.category === 'General' && (
+                      <>
+                        <SuggestionChip label="Gemini vs GPT-4" />
+                        <SuggestionChip label="DeepSeek Architecture" />
+                      </>
+                    )}
+                    {activeSession.category === 'Health' && (
+                      <>
+                         <SuggestionChip label="Med-PaLM 2 Papers" />
+                         <SuggestionChip label="AI in Radiology" />
+                      </>
+                    )}
+                    {activeSession.category === 'Emotion' && (
+                         <SuggestionChip label="Sentiment Analysis Trends" />
+                    )}
+                     {activeSession.category === 'Business' && (
+                      <SuggestionChip label="Enterprise LLM Adoption" />
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+
+            {/* Error State */}
+            {activeSession.status === SearchStatus.ERROR && (
+              <div className="max-w-4xl mx-auto w-full p-6 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-4 text-red-200 animate-fade-in">
+                <AlertCircle className="shrink-0 mt-1" />
+                <div>
+                  <h3 className="font-semibold text-lg">Search Failed</h3>
+                  <p>{activeSession.error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Success State */}
+            {activeSession.status === SearchStatus.SUCCESS && activeSession.result && (
+              <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-8 animate-fade-in-up">
+                
+                {/* Main Content Column */}
+                <main className="xl:col-span-8 space-y-6">
+                  <ResultDisplay result={activeSession.result} />
+                </main>
+
+                {/* Sidebar Column */}
+                <aside className="xl:col-span-4 space-y-6">
+                  <SourceList sources={activeSession.result.sources} />
+                  
+                  <div className="bg-gradient-to-br from-indigo-900/30 to-blue-900/30 rounded-xl p-5 border border-indigo-500/20">
+                    <h4 className="font-semibold text-indigo-200 mb-2 flex items-center gap-2">
+                      <Sparkles size={16} />
+                      {activeSession.category} Intelligence
+                    </h4>
+                    <p className="text-sm text-slate-400">
+                      Multi-source synthesis complete. Use the tabs on the left to confirm or modify the context.
+                    </p>
+                  </div>
+                </aside>
+
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
-
-// Helper Components
-
-const SuggestionChip: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button
-    onClick={onClick}
-    className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700 text-slate-300 text-sm rounded-full border border-slate-700 hover:border-blue-500/50 transition-all cursor-pointer"
-  >
-    {label}
-  </button>
-);
-
-const FeatureCard: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({ icon, title, description }) => (
-  <div className="p-4 bg-slate-800/30 rounded-xl border border-slate-800 flex items-center gap-4">
-    <div className="p-2 bg-slate-900 rounded-lg">
-      {icon}
-    </div>
-    <div>
-      <h3 className="font-medium text-slate-200">{title}</h3>
-      <p className="text-xs text-slate-500">{description}</p>
-    </div>
-  </div>
-);
 
 export default App;
