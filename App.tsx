@@ -5,8 +5,6 @@ import { SearchSession, SearchStatus, SearchCategory, ChatMessage } from './type
 import CategorySidebar from './components/CategorySidebar';
 import SearchTabs from './components/SearchTabs';
 import ResultDisplay from './components/ResultDisplay';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 // Generator for unique IDs
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -140,18 +138,45 @@ const App: React.FC = () => {
     setIsExporting(true);
     
     try {
+      // Dynamic imports to avoid initial loading issues
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
       const element = chatContainerRef.current;
       
-      const canvas = await html2canvas(element, {
-        scale: 2, // Retain quality
+      // Create a cloned container to render off-screen with full height
+      const clone = element.cloneNode(true) as HTMLElement;
+      
+      // Styling to ensure full visibility
+      clone.style.position = 'absolute';
+      clone.style.top = '-9999px';
+      clone.style.left = '0';
+      clone.style.width = '1000px'; // Fixed width for consistent PDF output
+      clone.style.height = 'auto';
+      clone.style.overflow = 'visible';
+      clone.style.background = '#0f172a'; // Match bg color
+      clone.style.color = '#e2e8f0';
+      
+      // Append to body
+      document.body.appendChild(clone);
+      
+      // Wait for content
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const canvas = await html2canvas(clone, {
+        scale: 2, 
         useCORS: true,
         backgroundColor: '#0f172a',
-        ignoreElements: (node) => node.classList.contains('no-print') // Helper class if needed
+        ignoreElements: (node) => node.classList.contains('no-print')
       });
 
+      // Cleanup
+      document.body.removeChild(clone);
+
       const imgData = canvas.toDataURL('image/png');
+      
       const pdf = new jsPDF({
-        orientation: 'portrait',
+        orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
         unit: 'px',
         format: [canvas.width, canvas.height]
       });
@@ -161,7 +186,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Export failed:", error);
-      alert("Could not export PDF. Please try using browser Print -> Save as PDF.");
+      alert("Could not export PDF. Please try again.");
     } finally {
       setIsExporting(false);
     }
@@ -280,7 +305,6 @@ const App: React.FC = () => {
                         {msg.text}
                      </div>
                   ) : (
-                     // ResultDisplay now handles the layout of content + source list
                      <ResultDisplay result={{ markdownText: msg.text, sources: msg.sources || [] }} />
                   )}
                 </div>

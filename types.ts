@@ -27,12 +27,15 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export enum SearchStatus {
-  IDLE = 'IDLE',
-  LOADING = 'LOADING',
-  SUCCESS = 'SUCCESS',
-  ERROR = 'ERROR',
-}
+// Replaced enum with const object + type for better runtime safety
+export const SearchStatus = {
+  IDLE: 'IDLE',
+  LOADING: 'LOADING',
+  SUCCESS: 'SUCCESS',
+  ERROR: 'ERROR',
+} as const;
+
+export type SearchStatus = typeof SearchStatus[keyof typeof SearchStatus];
 
 export interface NavItem {
   id: SearchCategory;

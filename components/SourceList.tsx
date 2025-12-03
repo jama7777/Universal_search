@@ -9,16 +9,22 @@ interface SourceListProps {
 export const getCategory = (uri: string): 'PAPER' | 'APP' | 'GENERAL' => {
   const lower = uri.toLowerCase();
   
+  // Check for PDF extensions which are likely papers
+  if (lower.endsWith('.pdf')) return 'PAPER';
+
   const paperDomains = [
     'arxiv.org', 'biorxiv.org', 'medrxiv.org', 'ieee.org', 'acm.org', 
     'nature.com', 'science.org', 'springer.com', 'sciencedirect.com', 
-    'ncbi.nlm.nih.gov', 'semanticscholar.org', 'researchgate.net'
+    'ncbi.nlm.nih.gov', 'semanticscholar.org', 'researchgate.net',
+    'ssrn.com', 'wiley.com', 'tandfonline.com', 'sagepub.com',
+    '.edu' // simplistic check for academic institutions
   ];
   
   const appDomains = [
     'github.com', 'gitlab.com', 'huggingface.co', 'producthunt.com', 
     'pypi.org', 'npmjs.com', 'sourceforge.net', 'stackoverflow.com',
-    'dev.to', 'vercel.com', 'netlify.com'
+    'dev.to', 'vercel.com', 'netlify.com', 'replit.com', 'codesandbox.io',
+    'openai.com', 'anthropic.com', 'midjourney.com'
   ];
 
   if (paperDomains.some(d => lower.includes(d))) return 'PAPER';
